@@ -26,6 +26,7 @@ from geometry_calculator import (
     Semicircle,
     Polygon,
 )
+from image_analyzer import ContourAnalyzer, ClaudeVisionAnalyzer, visualize_section
 
 
 # ─── Helper I/O ──────────────────────────────────────────────────────────────
@@ -348,6 +349,103 @@ def _example_L() -> CrossSection:
     return sec
 
 
+# ─── Menu: importa da immagine ───────────────────────────────────────────────
+
+def menu_import_image() -> CrossSection | None:
+    print("\n  ── IMPORTA DA IMMAGINE ────────────────────────────")
+    print("  Metodi disponibili:")
+    print("    1. Analisi contorno (OpenCV)")
+    print("       Estrae il profilo da silhouette / disegni B&N.")
+    print("       Non richiede connessione internet.")
+    print()
+    print("    2. Analisi AI (Claude Vision)")
+    print("       Interpreta disegni tecnici quotati, schizzi, foto.")
+    print("       Richiede ANTHROPIC_API_KEY.")
+    print()
+    print("    0. Annulla")
+
+    choice = input("  Metodo: ").strip()
+    if choice == "0":
+        return None
+
+    img_path = input("  Percorso immagine: ").strip().strip('"').strip("'")
+    if not img_path:
+        print("  ✗ Percorso non valido.")
+        pause()
+        return None
+
+    # ── Metodo 1: contorno OpenCV ──────────────────────────────────────
+    if choice == "1":
+        print("\n  Opzioni avanzate (premi INVIO per i valori predefiniti):")
+        scale_s = input("  Scala (mm/pixel) [1.0]: ").strip().replace(",", ".")
+        scale = float(scale_s) if scale_s else 1.0
+
+        invert_s = input("  Forma chiara su sfondo scuro? [s/N]: ").strip().lower()
+        invert = invert_s == "s"
+
+        thresh_s = input("  Soglia binarizzazione 0-255 [127]: ").strip()
+        threshold = int(thresh_s) if thresh_s.isdigit() else 127
+
+        preview_s = input("  Mostra anteprima contorni? [S/n]: ").strip().lower()
+        do_preview = preview_s != "n"
+
+        try:
+            analyzer = ContourAnalyzer()
+            if do_preview:
+                print("  Apertura anteprima...")
+                analyzer.preview(img_path, scale=scale, invert=invert,
+                                 threshold=threshold)
+            sec = analyzer.analyze(img_path, scale=scale, invert=invert,
+                                   threshold=threshold)
+            print(f"\n  ✓ Estratte {len(sec.shapes)} forma/e.")
+            props = sec.calculate()
+            print(props.summary(f'SEZIONE DA IMMAGINE: "{sec.name}"'))
+            keep = input("\n  Usare questa sezione? [S/n]: ").strip().lower()
+            if keep != "n":
+                pause()
+                return sec
+        except Exception as e:
+            print(f"\n  ✗ Errore: {e}")
+
+    # ── Metodo 2: Claude Vision API ────────────────────────────────────
+    elif choice == "2":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            api_key = input("  ANTHROPIC_API_KEY: ").strip()
+
+        try:
+            analyzer = ClaudeVisionAnalyzer(api_key=api_key)
+            sec = analyzer.analyze(img_path)
+            print(f"\n  ✓ Sezione '{sec.name}' ricostruita da Claude.")
+            props = sec.calculate()
+            print(props.summary(f'SEZIONE DA AI: "{sec.name}"'))
+            keep = input("\n  Usare questa sezione? [S/n]: ").strip().lower()
+            if keep != "n":
+                pause()
+                return sec
+        except Exception as e:
+            print(f"\n  ✗ Errore: {e}")
+
+    else:
+        print("  ⚠  Scelta non valida.")
+
+    pause()
+    return None
+
+
+def menu_visualize(section: CrossSection) -> None:
+    if not section.shapes:
+        print("  Sezione vuota: aggiungere prima delle forme.")
+        pause()
+        return
+    print("  Apertura visualizzazione grafica...")
+    try:
+        visualize_section(section)
+    except Exception as e:
+        print(f"  ✗ Errore visualizzazione: {e}")
+        pause()
+
+
 # ─── Loop principale ──────────────────────────────────────────────────────────
 
 def main():
@@ -370,6 +468,9 @@ def main():
         print("  │  6. Salva sezione (JSON)                         │")
         print("  │  7. Carica sezione (JSON)                        │")
         print("  │  8. Rinomina sezione                             │")
+        print("  ├─ IMMAGINI ───────────────────────────────────────┤")
+        print("  │  i. Importa da immagine (contorno / AI)          │")
+        print("  │  v. Visualizza sezione corrente                  │")
         print("  ├─ EXTRA ──────────────────────────────────────────┤")
         print("  │  9. Esempi predefiniti                           │")
         print("  │  0. Esci                                         │")
@@ -402,6 +503,12 @@ def main():
             result = menu_examples()
             if result:
                 section = result
+        elif choice in ("i", "I"):
+            result = menu_import_image()
+            if result:
+                section = result
+        elif choice in ("v", "V"):
+            menu_visualize(section)
         elif choice == "0":
             print("\n  Arrivederci!\n")
             sys.exit(0)
